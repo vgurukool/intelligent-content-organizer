@@ -44,6 +44,11 @@ class Config:
     TESSERACT_PATH: Optional[str] = os.getenv("TESSERACT_PATH")
     OCR_LANGUAGE: str = os.getenv("OCR_LANGUAGE", "eng")
     
+    # Template & Structured Extraction Configuration
+    TEMPLATE_STORE_PATH: str = os.getenv("TEMPLATE_STORE_PATH", "./data/templates")
+    EXTRACTION_TIMEOUT: int = int(os.getenv("EXTRACTION_TIMEOUT", "60"))
+    MAX_EXTRACTION_FILE_SIZE: int = int(os.getenv("MAX_EXTRACTION_FILE_SIZE", str(25 * 1024 * 1024)))  # 25 MB
+    
     @classmethod
     def validate(cls) -> bool:
         """Validate that required configuration is present"""
@@ -57,3 +62,4 @@ config = Config()
 import pathlib
 pathlib.Path(config.VECTOR_STORE_PATH).mkdir(parents=True, exist_ok=True)
 pathlib.Path(config.DOCUMENT_STORE_PATH).mkdir(parents=True, exist_ok=True)
+pathlib.Path(config.TEMPLATE_STORE_PATH).mkdir(parents=True, exist_ok=True)

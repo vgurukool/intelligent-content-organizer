@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     SERVER_PORT=7860 \
     PORT=7860 \
     VECTOR_STORE_PATH=/app/data/vector_store \
-    DOCUMENT_STORE_PATH=/app/data/documents
+    DOCUMENT_STORE_PATH=/app/data/documents \
+    TEMPLATE_STORE_PATH=/app/data/templates
 
 WORKDIR /app
 
@@ -36,7 +37,7 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 COPY . .
 
 # Ensure data directories exist
-RUN mkdir -p /app/data/vector_store /app/data/documents
+RUN mkdir -p /app/data/vector_store /app/data/documents /app/data/templates
 
 EXPOSE 7860
 

@@ -424,6 +424,39 @@ def delete_document_from_library(document_id):
             gr.update(choices=doc_choices_error)
         )
 
+def extract_structured_data(file, doc_type="unknown", hints="{}"):
+    """
+    MCP Tool & UI: Extract structured financial data (transactions, assets, folios, balances)
+    using deterministic bank parsers with Gemini Vision fallback and template synthesis.
+    """
+    if file is None:
+        return json.dumps({"success": False, "error": "No file uploaded"}, indent=2)
+    try:
+        file_path = file.name if hasattr(file, 'name') else str(file)
+        filename = Path(file_path).name
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+            
+        parsed_hints = {}
+        if hints:
+            try:
+                parsed_hints = json.loads(hints) if isinstance(hints, str) else hints
+            except Exception:
+                parsed_hints = {"raw_hints": str(hints)}
+
+        from services.parsers import ParserRegistry
+        registry = ParserRegistry()
+        result = registry.extract(
+            file_bytes=file_bytes,
+            filename=filename,
+            doc_type=doc_type or "unknown",
+            hints=parsed_hints
+        )
+        return json.dumps(result.model_dump(), indent=2)
+    except Exception as e:
+        logger.error(f"Structured extraction failed: {str(e)}")
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
 def create_gradio_interface():
     with gr.Blocks(title="🧠 Intelligent Content Organizer MCP Agent", theme=gr.themes.Soft()) as interface:
         gr.Markdown("""
@@ -438,65 +471,53 @@ def create_gradio_interface():
         1. **Documents in Library** → View your uploaded documents in the "📚 Document Library" tab  
         2. **Upload Documents** → Go to "📄 Upload Documents" tab  
         3. **Search Your Content** → Use "🔍 Search Documents" to find information  
-        4. **Get Summaries** → Select any document in "📝 Summarize" tab  
-        5. **Generate Tags** → Auto-generate tags for your documents in "🏷️ Generate Tags" tab  
-        6. **Ask Questions** → Get answers from your documents in "❓ Ask Questions" tab  
-        7. **Delete Documents** → Remove documents from your library in "📚 Document Library" tab  
-        8. **Refresh Library** → Click the 🔄 button to refresh the document list  
-
-        ---
-        🔗 For using MCP tools in Claude or other MCP clients, use this endpoint in the config file:  
-         https://agents-mcp-hackathon-intelligent-content-organizer.hf.space/gradio_api/mcp/sse
+        4. **Financial Extraction** → Go to "💳 Financial Extraction" to parse statements into JSON
         """)
-
-
+        
         with gr.Tabs():
             with gr.Tab("📚 Document Library"):
                 with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("### Your Document Collection")
-                        document_list_display = gr.Textbox(label="Documents in Library", value=get_document_list(), lines=20, interactive=False)
-                        refresh_btn_library = gr.Button("🔄 Refresh Library", variant="secondary")
-                        delete_doc_dropdown_visible = gr.Dropdown(label="Select Document to Delete", choices=get_document_choices(), value=None, interactive=True, allow_custom_value=False)
-                        delete_btn = gr.Button("🗑️ Delete Selected Document", variant="stop")
-                        delete_output_display = gr.Textbox(label="Delete Status", visible=True)
-            
+                    with gr.Column(scale=4):
+                        document_list_display = gr.Textbox(label="Documents in System", value=get_document_list(), lines=20, max_lines=25, interactive=False)
+                    with gr.Column(scale=1):
+                        refresh_btn_library = gr.Button("🔄 Refresh Library", variant="secondary", size="lg")
+                        gr.Markdown("---")
+                        delete_doc_dropdown_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Delete", value=None)
+                        delete_btn = gr.Button("🗑️ Delete Selected Document", variant="stop", size="sm")
+                        delete_output_display = gr.Textbox(label="Status", lines=3, interactive=False)
+
             with gr.Tab("📄 Upload Documents"):
                 with gr.Row():
                     with gr.Column():
-                        gr.Markdown("### Add Documents to Your Library")
-                        file_input_upload = gr.File(label="Select Document to Upload", file_types=[".pdf", ".txt", ".docx", ".png", ".jpg", ".jpeg"], type="filepath")
-                        upload_btn_process = gr.Button("🚀 Process & Add to Library", variant="primary", size="lg")
+                        file_input_upload = gr.File(label="Select Document to Upload", file_types=[".txt", ".pdf", ".docx", ".csv", ".json", ".md"])
+                        upload_btn_process = gr.Button("📤 Process and Index Document", variant="primary", size="lg")
                     with gr.Column():
-                        upload_output_display = gr.Textbox(label="Processing Result", lines=6, placeholder="Upload a document to see processing results...")
-                        doc_id_output_display = gr.Textbox(label="Document ID", placeholder="Document ID will appear here after processing...")
+                        upload_output_display = gr.Textbox(label="Upload Processing Results", lines=10, placeholder="Upload results will appear here...")
+                        doc_id_output_display = gr.Textbox(label="Document ID", placeholder="Document ID will appear here...", interactive=False)
 
             with gr.Tab("🔍 Search Documents"):
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Search Your Document Library")
-                        search_query_input = gr.Textbox(label="What are you looking for?", placeholder="Enter your search query...", lines=2)
-                        search_top_k_slider = gr.Slider(label="Number of Results", minimum=1, maximum=20, value=5, step=1)
-                        search_btn_action = gr.Button("🔍 Search Library", variant="primary", size="lg")
-                    with gr.Column(scale=2):
-                        search_output_display = gr.Textbox(label="Search Results", lines=20, placeholder="Search results will appear here...")
-            
-            with gr.Tab("📝 Summarize"):
+                    with gr.Column():
+                        search_query_input = gr.Textbox(label="Search Query", placeholder="Enter your search query here...", lines=2)
+                        search_top_k_slider = gr.Slider(label="Number of Results", minimum=1, maximum=10, value=5, step=1)
+                        search_btn_action = gr.Button("🔍 Search Documents", variant="primary", size="lg")
+                    with gr.Column():
+                        search_output_display = gr.Textbox(label="Search Results", lines=15, placeholder="Search results will appear here...")
+
+            with gr.Tab("📝 Summarize Content"):
                 with gr.Row():
                     with gr.Column():
-                        gr.Markdown("### Generate Document Summaries")
-                        doc_dropdown_sum_visible = gr.Dropdown(label="Select Document to Summarize", choices=get_document_choices(), value=None, interactive=True, allow_custom_value=False)
+                        doc_dropdown_sum_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Summarize", value=None)
                         summary_text_input = gr.Textbox(label="Or Paste Text to Summarize", placeholder="Paste any text here to summarize...", lines=8)
-                        summary_style_dropdown = gr.Dropdown(label="Summary Style", choices=["concise", "detailed", "bullet_points", "executive"], value="concise", info="Choose how you want the summary formatted")
+                        summary_style_dropdown = gr.Dropdown(choices=["concise", "detailed", "bullet_points", "executive"], value="concise", label="Summary Style")
                         summarize_btn_action = gr.Button("📝 Generate Summary", variant="primary", size="lg")
                     with gr.Column():
-                        summary_output_display = gr.Textbox(label="Generated Summary", lines=20, placeholder="Summary will appear here...")
+                        summary_output_display = gr.Textbox(label="Generated Summary", lines=15, placeholder="Summary will appear here...")
 
             with gr.Tab("🏷️ Generate Tags"):
                 with gr.Row():
                     with gr.Column():
-                        gr.Markdown("### Generate Document Tags")
-                        doc_dropdown_tag_visible = gr.Dropdown(label="Select Document to Tag", choices=get_document_choices(), value=None, interactive=True, allow_custom_value=False)
+                        doc_dropdown_tag_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Tag", value=None)
                         tag_text_input = gr.Textbox(label="Or Paste Text to Generate Tags", placeholder="Paste any text here to generate tags...", lines=8)
                         max_tags_slider = gr.Slider(label="Number of Tags", minimum=3, maximum=15, value=5, step=1)
                         tag_btn_action = gr.Button("🏷️ Generate Tags", variant="primary", size="lg")
@@ -514,6 +535,27 @@ def create_gradio_interface():
                     with gr.Column():
                         qa_output_display = gr.Textbox(label="AI Answer", lines=20, placeholder="Answer will appear here with sources...")
 
+            with gr.Tab("💳 Financial Extraction"):
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("""### Structured Financial Document Extraction
+                        Extract transactions, folios, and account summaries using deterministic bank parsers 
+                        with Gemini Vision fallback and automatic template synthesis.""")
+                        extract_file_input = gr.File(label="Upload Bank/CAS Statement (PDF or CSV)")
+                        extract_doctype_dropdown = gr.Dropdown(
+                            choices=["unknown", "bank_statement", "mutual_fund_cas", "fixed_deposit", "csv_statement"],
+                            value="unknown",
+                            label="Document Type Hint"
+                        )
+                        extract_hints_input = gr.Textbox(
+                            label="Hints (JSON)",
+                            value='{"bank": "auto", "password": "optional_password"}',
+                            lines=2
+                        )
+                        extract_btn_action = gr.Button("⚡ Extract Structured Data", variant="primary", size="lg")
+                    with gr.Column():
+                        extract_json_display = gr.Textbox(label="Extracted JSON", lines=25, placeholder="Extracted structured JSON will appear here...")
+
         all_dropdowns_to_update = [delete_doc_dropdown_visible, doc_dropdown_sum_visible, doc_dropdown_tag_visible]
         
         refresh_outputs = [document_list_display] + [dd for dd in all_dropdowns_to_update]
@@ -529,17 +571,28 @@ def create_gradio_interface():
         summarize_btn_action.click(summarize_document, inputs=[doc_dropdown_sum_visible, summary_text_input, summary_style_dropdown], outputs=[summary_output_display])
         tag_btn_action.click(generate_tags_for_document, inputs=[doc_dropdown_tag_visible, tag_text_input, max_tags_slider], outputs=[tag_output_display])
         qa_btn_action.click(ask_question, inputs=[qa_question_input], outputs=[qa_output_display])
+        extract_btn_action.click(extract_structured_data, inputs=[extract_file_input, extract_doctype_dropdown, extract_hints_input], outputs=[extract_json_display])
 
         interface.load(fn=refresh_library, outputs=refresh_outputs)
         return interface           
 
 if __name__ == "__main__":
+    import uvicorn
+    from fastapi import FastAPI
+    from api.extraction_api import router as extraction_router
+
     gradio_interface = create_gradio_interface()
     server_name = getattr(config.config, "SERVER_NAME", "0.0.0.0")
     server_port = getattr(config.config, "SERVER_PORT", 7860)
-    logger.info(f"Starting Gradio MCP server on {server_name}:{server_port}...")
-    gradio_interface.launch(
-        server_name=server_name,
-        server_port=server_port,
-        mcp_server=True
+
+    fastapi_app = FastAPI(
+        title="Intelligent Content Organizer & Extraction Engine",
+        description="Unified REST API and Gradio MCP platform for document organization and structured extraction.",
+        version="2.0.0"
     )
+    fastapi_app.include_router(extraction_router)
+
+    app = gr.mount_gradio_app(fastapi_app, gradio_interface, path="/", mcp_server=True)
+
+    logger.info(f"Starting Unified incorg server on {server_name}:{server_port}...")
+    uvicorn.run(app, host=server_name, port=server_port)

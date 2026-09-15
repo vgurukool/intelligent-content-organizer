@@ -21,4 +21,6 @@ httpx
 fastmcp
 mcp
 openai
+fastapi>=0.100.0
+pypdf>=4.0.0
 python-dotenv
