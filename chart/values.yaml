@@ -36,14 +36,14 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/websocket-services: "intelligent-content-organizer"
   hosts:
-    - host: ico.vgurukool.com
+    - host: incorg.vgurukool.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: ico-tls
+    - secretName: incorg-tls
       hosts:
-        - ico.vgurukool.com
+        - incorg.vgurukool.com
 
 resources:
   limits:
