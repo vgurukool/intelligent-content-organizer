@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ayusing/intelligent-content-organizer
   pullPolicy: Always
-  tag: "v2.0.0"
+  tag: "v2.1.0"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -87,6 +87,7 @@ env:
   VECTOR_STORE_PATH: "/app/data/vector_store"
   DOCUMENT_STORE_PATH: "/app/data/documents"
   TEMPLATE_STORE_PATH: "/app/data/templates"
+  TASK_STORE_PATH: "/app/data/tasks"
   EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
   CHUNK_SIZE: "500"
   CHUNK_OVERLAP: "50"

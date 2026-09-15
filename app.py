@@ -233,9 +233,19 @@ def upload_and_process_file(file):
             gr.update(choices=doc_choices_initial),
             gr.update(choices=doc_choices_initial)
         )
+    file_path = file.name if hasattr(file, 'name') else str(file)
+    filename = Path(file_path).name
+    file_type = Path(file_path).suffix.lower().strip('.') # Ensure suffix is clean
+    
+    from services.task_service import task_service
+    task = task_service.create_task(
+        task_type="document_ingestion",
+        source="UI Upload",
+        name=filename,
+        summary=f"Ingesting and indexing {file_type} document"
+    )
+
     try:
-        file_path = file.name if hasattr(file, 'name') else str(file)
-        file_type = Path(file_path).suffix.lower().strip('.') # Ensure suffix is clean
         logger.info(f"Processing file: {file_path}, type: {file_type}")
         result = mcp_server.run_async(mcp_server.ingest_document_async(file_path, file_type))
         
@@ -243,6 +253,13 @@ def upload_and_process_file(file):
         doc_choices_updated = get_document_choices()
 
         if result["success"]:
+            chunks_cnt = result.get('chunks_created', 0)
+            doc_id_val = result.get('document_id', '')
+            task_service.complete_task(
+                task_id=task.id,
+                summary=f"Successfully indexed: {chunks_cnt} chunks created (ID: {doc_id_val[:8]}...)",
+                output=result
+            )
             return (
                 f"✅ Success: {result['message']}\nDocument ID: {result['document_id']}\nChunks created: {result['chunks_created']}",
                 result["document_id"],
@@ -252,6 +269,10 @@ def upload_and_process_file(file):
                 gr.update(choices=doc_choices_updated)
             )
         else:
+            task_service.fail_task(
+                task_id=task.id,
+                error=result.get('error', 'Unknown error')
+            )
             return (
                 f"❌ Error: {result.get('error', 'Unknown error')}", "",
                 doc_list_updated,
@@ -261,6 +282,7 @@ def upload_and_process_file(file):
             )
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
+        task_service.fail_task(task.id, error=str(e))
         doc_list_error = get_document_list()
         doc_choices_error = get_document_choices()
         return (
@@ -431,9 +453,19 @@ def extract_structured_data(file, doc_type="unknown", hints="{}"):
     """
     if file is None:
         return json.dumps({"success": False, "error": "No file uploaded"}, indent=2)
+        
+    file_path = file.name if hasattr(file, 'name') else str(file)
+    filename = Path(file_path).name
+
+    from services.task_service import task_service
+    task = task_service.create_task(
+        task_type="financial_extraction",
+        source="UI Extraction / MCP",
+        name=filename,
+        summary=f"Extracting financial statements (hint: {doc_type})"
+    )
+
     try:
-        file_path = file.name if hasattr(file, 'name') else str(file)
-        filename = Path(file_path).name
         with open(file_path, "rb") as f:
             file_bytes = f.read()
             
@@ -452,10 +484,93 @@ def extract_structured_data(file, doc_type="unknown", hints="{}"):
             doc_type=doc_type or "unknown",
             hints=parsed_hints
         )
+
+        if result.success:
+            summary_msg = f"Extracted {len(result.transactions)} transactions, {len(result.assets)} assets ({result.template_id})"
+            task_service.complete_task(
+                task_id=task.id,
+                summary=summary_msg,
+                output=result.model_dump(),
+                duration_ms=result.processing_time_ms
+            )
+        else:
+            task_service.fail_task(
+                task_id=task.id,
+                error=result.error or "Extraction failed",
+                duration_ms=result.processing_time_ms
+            )
+
         return json.dumps(result.model_dump(), indent=2)
     except Exception as e:
         logger.error(f"Structured extraction failed: {str(e)}")
+        task_service.fail_task(task.id, error=str(e))
         return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+def get_task_rows(status_filter="All", source_filter="All"):
+    from services.task_service import task_service
+    tasks = task_service.list_tasks(limit=100, status_filter=status_filter, source_filter=source_filter)
+    rows = []
+    for t in tasks:
+        if t.status == "completed":
+            status_badge = "🟢 Completed"
+        elif t.status == "failed":
+            status_badge = "🔴 Failed"
+        else:
+            status_badge = "🟡 Processing"
+            
+        dur_str = f"{t.duration_ms}ms" if t.duration_ms is not None else "-"
+        created_display = t.created_at[:19].replace("T", " ") if t.created_at else "-"
+        
+        type_icon = {
+            "financial_extraction": "💳 Extraction",
+            "document_ingestion": "📄 Ingestion",
+            "semantic_search": "🔍 Search",
+            "summarization": "📝 Summary",
+            "qa": "❓ Q&A"
+        }.get(t.task_type, t.task_type)
+        
+        rows.append([
+            created_display,
+            t.id,
+            type_icon,
+            t.source,
+            t.name,
+            status_badge,
+            dur_str,
+            t.summary
+        ])
+    return rows
+
+def get_task_choices_list():
+    from services.task_service import task_service
+    tasks = task_service.list_tasks(limit=100)
+    choices = []
+    for t in tasks:
+        created_display = t.created_at[:19].replace("T", " ") if t.created_at else ""
+        icon = "🟢" if t.status == "completed" else ("🔴" if t.status == "failed" else "🟡")
+        label = f"{icon} [{created_display}] {t.name} ({t.source})"
+        choices.append((label, t.id))
+    return choices
+
+def view_task_details(task_id):
+    if not task_id:
+        return "Select a task above to inspect details and outputs."
+    from services.task_service import task_service
+    task = task_service.get_task(task_id)
+    if not task:
+        return f"Task '{task_id}' not found."
+    return json.dumps(task.model_dump(), indent=2)
+
+def refresh_tasks_ui(status_filter="All", source_filter="All"):
+    table_data = get_task_rows(status_filter, source_filter)
+    choices = get_task_choices_list()
+    first_choice_id = choices[0][1] if choices else None
+    first_detail = view_task_details(first_choice_id) if first_choice_id else "No tasks recorded yet."
+    return (
+        table_data,
+        gr.update(choices=choices, value=first_choice_id),
+        first_detail
+    )
 
 def create_gradio_interface():
     with gr.Blocks(title="🧠 Intelligent Content Organizer MCP Agent", theme=gr.themes.Soft()) as interface:
@@ -471,7 +586,8 @@ def create_gradio_interface():
         1. **Documents in Library** → View your uploaded documents in the "📚 Document Library" tab  
         2. **Upload Documents** → Go to "📄 Upload Documents" tab  
         3. **Search Your Content** → Use "🔍 Search Documents" to find information  
-        4. **Financial Extraction** → Go to "💳 Financial Extraction" to parse statements into JSON
+        4. **Financial Extraction** → Go to "💳 Financial Extraction" to parse statements into JSON  
+        5. **Task Monitor** → View all ingestion and extraction tasks in "📋 Activity & Task Monitor"
         """)
         
         with gr.Tabs():
@@ -556,6 +672,54 @@ def create_gradio_interface():
                     with gr.Column():
                         extract_json_display = gr.Textbox(label="Extracted JSON", lines=25, placeholder="Extracted structured JSON will appear here...")
 
+            with gr.Tab("📋 Activity & Task Monitor"):
+                gr.Markdown("""### 📊 System Activity & Task Monitor
+                Real-time tracking of all document operations: internal uploads, external REST API calls, and MCP requests.
+                """)
+                with gr.Row():
+                    filter_status = gr.Dropdown(
+                        choices=["All", "completed", "processing", "failed"],
+                        value="All",
+                        label="Status Filter",
+                        scale=1
+                    )
+                    filter_source = gr.Dropdown(
+                        choices=["All", "UI Upload", "REST API", "UI Extraction / MCP", "Google Drive", "S3 Inbox"],
+                        value="All",
+                        label="Source Filter",
+                        scale=1
+                    )
+                    task_refresh_btn = gr.Button("🔄 Refresh Activity", variant="secondary", scale=1)
+
+                init_tasks = get_task_rows()
+                init_choices = get_task_choices_list()
+                first_choice_id = init_choices[0][1] if init_choices else None
+                init_detail = view_task_details(first_choice_id) if first_choice_id else "No tasks found."
+
+                tasks_table = gr.Dataframe(
+                    headers=["Time (UTC)", "Task ID", "Type", "Source", "Document / Target", "Status", "Duration", "Summary"],
+                    datatype=["str", "str", "str", "str", "str", "str", "str", "str"],
+                    value=init_tasks,
+                    interactive=False,
+                    wrap=True
+                )
+
+                gr.Markdown("---")
+                gr.Markdown("### 🔍 Task Inspector & Detailed Output")
+                with gr.Row():
+                    task_selector_dropdown = gr.Dropdown(
+                        choices=init_choices,
+                        label="Select Task to Inspect",
+                        value=first_choice_id,
+                        scale=3
+                    )
+                task_detail_output = gr.Code(
+                    label="Task Details & Payload Output (JSON)",
+                    language="json",
+                    lines=20,
+                    value=init_detail
+                )
+
         all_dropdowns_to_update = [delete_doc_dropdown_visible, doc_dropdown_sum_visible, doc_dropdown_tag_visible]
         
         refresh_outputs = [document_list_display] + [dd for dd in all_dropdowns_to_update]
@@ -572,6 +736,28 @@ def create_gradio_interface():
         tag_btn_action.click(generate_tags_for_document, inputs=[doc_dropdown_tag_visible, tag_text_input, max_tags_slider], outputs=[tag_output_display])
         qa_btn_action.click(ask_question, inputs=[qa_question_input], outputs=[qa_output_display])
         extract_btn_action.click(extract_structured_data, inputs=[extract_file_input, extract_doctype_dropdown, extract_hints_input], outputs=[extract_json_display])
+
+        # Task monitor events
+        task_refresh_btn.click(
+            refresh_tasks_ui,
+            inputs=[filter_status, filter_source],
+            outputs=[tasks_table, task_selector_dropdown, task_detail_output]
+        )
+        filter_status.change(
+            refresh_tasks_ui,
+            inputs=[filter_status, filter_source],
+            outputs=[tasks_table, task_selector_dropdown, task_detail_output]
+        )
+        filter_source.change(
+            refresh_tasks_ui,
+            inputs=[filter_status, filter_source],
+            outputs=[tasks_table, task_selector_dropdown, task_detail_output]
+        )
+        task_selector_dropdown.change(
+            view_task_details,
+            inputs=[task_selector_dropdown],
+            outputs=[task_detail_output]
+        )
 
         interface.load(fn=refresh_library, outputs=refresh_outputs)
         return interface           
