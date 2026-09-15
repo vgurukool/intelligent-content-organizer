@@ -53,7 +53,12 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: data-storage
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "intelligent-content-organizer.fullname" . }}-data
+          {{- else }}
           emptyDir: {}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -16,7 +16,7 @@ spec:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: vgurukool
+    namespace: incorg
   syncPolicy:
     automated:
       prune: true
