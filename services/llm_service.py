@@ -1,4 +1,10 @@
-from mistralai import Mistral
+try:
+    from mistralai.client import Mistral
+except Exception:
+    try:
+        from mistralai import Mistral
+    except Exception:
+        Mistral = None
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
@@ -25,9 +31,9 @@ class LLMService:
                     api_key=self.config.NEBIUS_API_KEY,
                     base_url=self.config.NEBIUS_BASE_URL
                 )
-                logger.info("NEBIUS client initialized")
+                logger.info("OpenAI / LiteLLM client initialized")
             
-            if self.config.MISTRAL_API_KEY:
+            if self.config.MISTRAL_API_KEY and Mistral is not None:
                 self.mistral_client = Mistral( # Standard sync client
                     api_key=self.config.MISTRAL_API_KEY
                 )
