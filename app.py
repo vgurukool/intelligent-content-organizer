@@ -506,6 +506,67 @@ def extract_structured_data(file, doc_type="unknown", hints="{}"):
         task_service.fail_task(task.id, error=str(e))
         return json.dumps({"success": False, "error": str(e)}, indent=2)
 
+def extract_structured_data_ui(file, doc_type="unknown", hints="{}"):
+    """
+    UI handler for structured extraction: parses statement, populates transactions table, and outputs JSON.
+    """
+    if file is None:
+        return "⚠️ **No file selected.** Please upload a PDF or CSV statement to begin.", [], "{}"
+    
+    raw_json = extract_structured_data(file, doc_type, hints)
+    try:
+        data = json.loads(raw_json)
+        if not data.get("success"):
+            err = data.get("error", "Extraction failed")
+            return f"❌ **Extraction Failed**: {err}", [], raw_json
+        
+        txs = data.get("transactions", [])
+        tx_rows = []
+        for t in txs:
+            amt = t.get("amount")
+            amt_str = f"${float(amt):,.2f}" if amt is not None else "-"
+            bal = t.get("balance")
+            bal_str = f"${float(bal):,.2f}" if bal is not None else "-"
+            tx_rows.append([
+                t.get("date", "-"),
+                t.get("description", "-"),
+                amt_str,
+                t.get("transaction_type", "debit"),
+                t.get("category", "General"),
+                bal_str
+            ])
+        
+        template = data.get("template_id", "unknown")
+        duration = data.get("processing_time_ms", 0)
+        is_fast = "gemini" not in template.lower()
+        engine_label = "🟢 Fast-Path Deterministic" if is_fast else "🟣 Gemini AI Vision Fallback"
+        status_md = f"### ✅ Successfully Extracted **{len(txs)} Transactions**\n**Engine:** `{template}` ({engine_label}) | **Latency:** `{duration}ms` | **Account:** `{data.get('account_number', 'N/A')}` | **Assets:** `{len(data.get('assets', []))}`"
+        return status_md, tx_rows, raw_json
+    except Exception as e:
+        return f"❌ **Parsing Error**: {str(e)}", [], raw_json
+
+def get_templates_rows():
+    try:
+        from services.parsers import ParserRegistry
+        registry = ParserRegistry()
+        templates = registry.list_templates()
+        rows = []
+        for t in templates:
+            ptype = t.get("type", "deterministic")
+            badge = "🟢 Fast-Path Regex (20-50ms)" if ptype == "deterministic" else "🟣 AI Vision Synthesizer"
+            rows.append([
+                t.get("template_id", ""),
+                t.get("name", ""),
+                t.get("category", ""),
+                ptype,
+                t.get("version", "1.0"),
+                badge
+            ])
+        return rows
+    except Exception as e:
+        logger.error(f"Error loading templates: {e}")
+        return []
+
 def get_task_rows(status_filter="All", source_filter="All"):
     from services.task_service import task_service
     tasks = task_service.list_tasks(limit=100, status_filter=status_filter, source_filter=source_filter)
@@ -572,109 +633,183 @@ def refresh_tasks_ui(status_filter="All", source_filter="All"):
         first_detail
     )
 
+HEADER_HTML = """
+<div style="background: linear-gradient(135deg, #090d16 0%, #111827 100%); border: 1px solid #1e293b; border-radius: 12px; padding: 18px 24px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <div style="width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);">
+      🧠
+    </div>
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="color: #f8fafc; font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.02em;">Vgurukool Intelligent Content Organizer</h1>
+        <span style="background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 9999px; border: 1px solid #334155; font-family: monospace;">v2.2.0</span>
+      </div>
+      <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 0 0;">Unified RAG Knowledge Engine & Deterministic Financial Extraction Studio</p>
+    </div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px;">
+    <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #34d399; display: flex; align-items: center; gap: 6px;">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 8px #10b981;"></span>
+      <span>cnoe-ref-impl (us-east-2)</span>
+    </div>
+    <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #818cf8; display: flex; align-items: center; gap: 6px;">
+      <span>⚡ Fast-Path: 20-50ms</span>
+    </div>
+    <div id="auth-status-container">
+      <a id="sso-auth-btn" href="/login" style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: white; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);">
+        <span>🔐</span>
+        <span>Sign In with Keycloak SSO</span>
+      </a>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  fetch('/api/v1/auth/me')
+    .then(r => r.json())
+    .then(data => {
+      const container = document.getElementById('auth-status-container');
+      if (container && data.authenticated) {
+        const u = data.user;
+        const name = u.name || u.preferred_username || u.email;
+        container.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px; background: #1e293b; border: 1px solid #334155; padding: 6px 14px; border-radius: 8px; font-size: 13px; color: #f1f5f9;">
+            <span>👤</span>
+            <span style="font-weight: 600;">${name}</span>
+            <span style="color: #64748b; font-size: 11px;">(cnoe)</span>
+            <a href="/logout" style="margin-left: 6px; color: #f87171; text-decoration: none; font-size: 12px; font-weight: 500;">Logout</a>
+          </div>
+        `;
+      }
+    })
+    .catch(() => {});
+})();
+</script>
+"""
+
+OVERVIEW_HTML = """
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+  <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+    <div style="color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Fast-Path Latency</div>
+    <div style="font-size: 28px; font-weight: 800; color: #38bdf8; margin-top: 6px;">20 - 50 <span style="font-size: 16px; font-weight: 500; color: #94a3b8;">ms</span></div>
+    <div style="color: #64748b; font-size: 12px; margin-top: 4px;">Deterministic regex parsers</div>
+  </div>
+  <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+    <div style="color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Supported Formats</div>
+    <div style="font-size: 28px; font-weight: 800; color: #34d399; margin-top: 6px;">5+ <span style="font-size: 16px; font-weight: 500; color: #94a3b8;">Templates</span></div>
+    <div style="color: #64748b; font-size: 12px; margin-top: 4px;">Chase, BofA, HDFC, CAS, Citi</div>
+  </div>
+  <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+    <div style="color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">AI Fallback Engine</div>
+    <div style="font-size: 28px; font-weight: 800; color: #c084fc; margin-top: 6px;">Gemini 2.5 <span style="font-size: 16px; font-weight: 500; color: #94a3b8;">Flash</span></div>
+    <div style="color: #64748b; font-size: 12px; margin-top: 4px;">With automatic template synthesizer</div>
+  </div>
+  <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px;">
+    <div style="color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Identity & Auth</div>
+    <div style="font-size: 28px; font-weight: 800; color: #fbbf24; margin-top: 6px;">Keycloak <span style="font-size: 16px; font-weight: 500; color: #94a3b8;">SSO</span></div>
+    <div style="color: #64748b; font-size: 12px; margin-top: 4px;">Realm cnoe | Client vgurukool-apps</div>
+  </div>
+</div>
+
+<div style="background: #182234; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+  <h3 style="color: #f8fafc; font-size: 16px; font-weight: 700; margin: 0 0 12px 0;">⚡ Dual-Engine Architectural Pipeline</h3>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 16px;">
+    <div style="text-align: center; flex: 1; min-width: 140px;">
+      <div style="font-size: 20px;">📄</div>
+      <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; margin-top: 4px;">Document Ingestion</div>
+      <div style="font-size: 11px; color: #94a3b8;">PDF / CSV / Scans</div>
+    </div>
+    <div style="color: #64748b; font-size: 18px;">➔</div>
+    <div style="text-align: center; flex: 1; min-width: 140px;">
+      <div style="font-size: 20px;">🎯</div>
+      <div style="font-size: 13px; font-weight: 600; color: #38bdf8; margin-top: 4px;">Signature Matcher</div>
+      <div style="font-size: 11px; color: #94a3b8;">Inspects headers & text</div>
+    </div>
+    <div style="color: #64748b; font-size: 18px;">➔</div>
+    <div style="text-align: center; flex: 1.2; min-width: 160px; background: rgba(52, 211, 153, 0.1); border: 1px dashed rgba(52, 211, 153, 0.4); border-radius: 6px; padding: 8px;">
+      <div style="font-size: 13px; font-weight: 700; color: #34d399;">Fast-Path (20-50ms)</div>
+      <div style="font-size: 11px; color: #a7f3d0;">Deterministic Bank Parsers</div>
+    </div>
+    <div style="color: #64748b; font-size: 18px;">OR</div>
+    <div style="text-align: center; flex: 1.2; min-width: 160px; background: rgba(192, 132, 252, 0.1); border: 1px dashed rgba(192, 132, 252, 0.4); border-radius: 6px; padding: 8px;">
+      <div style="font-size: 13px; font-weight: 700; color: #c084fc;">AI Fallback (2-4s)</div>
+      <div style="font-size: 11px; color: #e9d5ff;">Gemini Vision + Synthesizer</div>
+    </div>
+    <div style="color: #64748b; font-size: 18px;">➔</div>
+    <div style="text-align: center; flex: 1; min-width: 140px;">
+      <div style="font-size: 20px;">📊</div>
+      <div style="font-size: 13px; font-weight: 600; color: #f1f5f9; margin-top: 4px;">Task Storage</div>
+      <div style="font-size: 11px; color: #94a3b8;">/app/data/tasks/ (PVC)</div>
+    </div>
+  </div>
+</div>
+"""
+
+CUSTOM_CSS = """
+.gradio-container {
+    max-width: 1400px !important;
+    margin: auto !important;
+}
+.tab-nav button {
+    font-weight: 600 !important;
+    font-size: 14px !important;
+}
+"""
+
 def create_gradio_interface():
-    with gr.Blocks(title="🧠 Intelligent Content Organizer MCP Agent", theme=gr.themes.Soft()) as interface:
-        gr.Markdown("""
-        # 🧠 Intelligent Content Organizer MCP Agent
-        A powerful MCP (Model Context Protocol) server for intelligent content management with semantic search, 
-        summarization, and Q&A capabilities.
-
-        👉 Read the full article here:  
-        <a href="https://huggingface.co/blog/Nihal2000/intelligent-content-organizer#empowering-your-data-building-an-intelligent-content-organizer-with-mistral-ai-and-the-model-context-protocol" target="_blank">Building an Intelligent Content Organizer</a>
-
-        ## 🚀 Quick Start:
-        1. **Documents in Library** → View your uploaded documents in the "📚 Document Library" tab  
-        2. **Upload Documents** → Go to "📄 Upload Documents" tab  
-        3. **Search Your Content** → Use "🔍 Search Documents" to find information  
-        4. **Financial Extraction** → Go to "💳 Financial Extraction" to parse statements into JSON  
-        5. **Task Monitor** → View all ingestion and extraction tasks in "📋 Activity & Task Monitor"
-        """)
+    with gr.Blocks(title="🧠 Vgurukool Intelligent Content Organizer", theme=gr.themes.Soft(primary_hue="indigo", neutral_hue="slate"), css=CUSTOM_CSS) as interface:
+        gr.HTML(HEADER_HTML)
         
         with gr.Tabs():
-            with gr.Tab("📚 Document Library"):
+            # Tab 1: Overview & Metrics
+            with gr.Tab("📊 Overview & Architecture"):
+                gr.HTML(OVERVIEW_HTML)
+                gr.Markdown("""### 🔌 Protocol & Machine-to-Machine Endpoints
+- **REST Extraction**: `POST /api/v1/extract` (Exempt from auth redirects, optimized for Dhana Lakshmi & in-cluster services)
+- **Task Query**: `GET /api/v1/tasks` & `GET /api/v1/tasks/{task_id}`
+- **Template Query**: `GET /api/v1/templates`
+- **MCP Endpoints**: `/gradio_api/mcp/sse` & `/gradio_api/mcp/messages/`
+- **SSO Authentication**: `/login` (Keycloak PKCE), `/callback`, `/logout`, `/api/v1/auth/me`
+                """)
+
+            # Tab 2: Financial Studio
+            with gr.Tab("💳 Financial Extraction Studio"):
+                gr.Markdown("""### 🏦 High-Performance Financial Document Extraction
+Extract structured statements, transactions, accounts, and investment folios with deterministic microsecond fast-path.
+                """)
                 with gr.Row():
-                    with gr.Column(scale=4):
-                        document_list_display = gr.Textbox(label="Documents in System", value=get_document_list(), lines=20, max_lines=25, interactive=False)
                     with gr.Column(scale=1):
-                        refresh_btn_library = gr.Button("🔄 Refresh Library", variant="secondary", size="lg")
-                        gr.Markdown("---")
-                        delete_doc_dropdown_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Delete", value=None)
-                        delete_btn = gr.Button("🗑️ Delete Selected Document", variant="stop", size="sm")
-                        delete_output_display = gr.Textbox(label="Status", lines=3, interactive=False)
-
-            with gr.Tab("📄 Upload Documents"):
-                with gr.Row():
-                    with gr.Column():
-                        file_input_upload = gr.File(label="Select Document to Upload", file_types=[".txt", ".pdf", ".docx", ".csv", ".json", ".md"])
-                        upload_btn_process = gr.Button("📤 Process and Index Document", variant="primary", size="lg")
-                    with gr.Column():
-                        upload_output_display = gr.Textbox(label="Upload Processing Results", lines=10, placeholder="Upload results will appear here...")
-                        doc_id_output_display = gr.Textbox(label="Document ID", placeholder="Document ID will appear here...", interactive=False)
-
-            with gr.Tab("🔍 Search Documents"):
-                with gr.Row():
-                    with gr.Column():
-                        search_query_input = gr.Textbox(label="Search Query", placeholder="Enter your search query here...", lines=2)
-                        search_top_k_slider = gr.Slider(label="Number of Results", minimum=1, maximum=10, value=5, step=1)
-                        search_btn_action = gr.Button("🔍 Search Documents", variant="primary", size="lg")
-                    with gr.Column():
-                        search_output_display = gr.Textbox(label="Search Results", lines=15, placeholder="Search results will appear here...")
-
-            with gr.Tab("📝 Summarize Content"):
-                with gr.Row():
-                    with gr.Column():
-                        doc_dropdown_sum_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Summarize", value=None)
-                        summary_text_input = gr.Textbox(label="Or Paste Text to Summarize", placeholder="Paste any text here to summarize...", lines=8)
-                        summary_style_dropdown = gr.Dropdown(choices=["concise", "detailed", "bullet_points", "executive"], value="concise", label="Summary Style")
-                        summarize_btn_action = gr.Button("📝 Generate Summary", variant="primary", size="lg")
-                    with gr.Column():
-                        summary_output_display = gr.Textbox(label="Generated Summary", lines=15, placeholder="Summary will appear here...")
-
-            with gr.Tab("🏷️ Generate Tags"):
-                with gr.Row():
-                    with gr.Column():
-                        doc_dropdown_tag_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Tag", value=None)
-                        tag_text_input = gr.Textbox(label="Or Paste Text to Generate Tags", placeholder="Paste any text here to generate tags...", lines=8)
-                        max_tags_slider = gr.Slider(label="Number of Tags", minimum=3, maximum=15, value=5, step=1)
-                        tag_btn_action = gr.Button("🏷️ Generate Tags", variant="primary", size="lg")
-                    with gr.Column():
-                        tag_output_display = gr.Textbox(label="Generated Tags", lines=10, placeholder="Tags will appear here...")
-
-            with gr.Tab("❓ Ask Questions"):
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("""### Ask Questions About Your Documents
-                        The AI will search through all your uploaded documents to find relevant information 
-                        and provide comprehensive answers with sources.""")
-                        qa_question_input = gr.Textbox(label="Your Question", placeholder="Ask anything about your documents...", lines=3)
-                        qa_btn_action = gr.Button("❓ Get Answer", variant="primary", size="lg")
-                    with gr.Column():
-                        qa_output_display = gr.Textbox(label="AI Answer", lines=20, placeholder="Answer will appear here with sources...")
-
-            with gr.Tab("💳 Financial Extraction"):
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("""### Structured Financial Document Extraction
-                        Extract transactions, folios, and account summaries using deterministic bank parsers 
-                        with Gemini Vision fallback and automatic template synthesis.""")
-                        extract_file_input = gr.File(label="Upload Bank/CAS Statement (PDF or CSV)")
+                        extract_file_input = gr.File(label="Upload Statement (PDF or CSV)", file_types=[".pdf", ".csv"])
                         extract_doctype_dropdown = gr.Dropdown(
                             choices=["unknown", "bank_statement", "mutual_fund_cas", "fixed_deposit", "csv_statement"],
                             value="unknown",
                             label="Document Type Hint"
                         )
                         extract_hints_input = gr.Textbox(
-                            label="Hints (JSON)",
-                            value='{"bank": "auto", "password": "optional_password"}',
+                            label="Hints / Parameters (JSON)",
+                            value='{"bank": "auto", "password": ""}',
                             lines=2
                         )
-                        extract_btn_action = gr.Button("⚡ Extract Structured Data", variant="primary", size="lg")
-                    with gr.Column():
-                        extract_json_display = gr.Textbox(label="Extracted JSON", lines=25, placeholder="Extracted structured JSON will appear here...")
+                        extract_btn_action = gr.Button("⚡ Run Structured Extraction", variant="primary", size="lg")
+                    
+                    with gr.Column(scale=2):
+                        extract_status_md = gr.Markdown("### 📄 Ready for Statement Extraction\nUpload a statement on the left and click **Run Structured Extraction**.")
+                        with gr.Tabs():
+                            with gr.Tab("📑 Extracted Transactions"):
+                                extract_tx_table = gr.Dataframe(
+                                    headers=["Date", "Description", "Amount", "Type", "Category", "Balance"],
+                                    datatype=["str", "str", "str", "str", "str", "str"],
+                                    value=[],
+                                    interactive=False,
+                                    wrap=True
+                                )
+                            with gr.Tab("💻 Structured JSON Output"):
+                                extract_json_display = gr.Code(label="Full JSON Schema Payload", language="json", lines=22)
 
-            with gr.Tab("📋 Activity & Task Monitor"):
-                gr.Markdown("""### 📊 System Activity & Task Monitor
-                Real-time tracking of all document operations: internal uploads, external REST API calls, and MCP requests.
+            # Tab 3: Activity & Task Monitor
+            with gr.Tab("📋 Activity & Tasks"):
+                gr.Markdown("""### 📊 Centralized Task & Request Monitor
+Real-time audit log of all document operations: browser uploads, external REST API calls from Dhana Lakshmi, and MCP requests.
                 """)
                 with gr.Row():
                     filter_status = gr.Dropdown(
@@ -720,8 +855,73 @@ def create_gradio_interface():
                     value=init_detail
                 )
 
+            # Tab 4: Document Intelligence & Q&A
+            with gr.Tab("🧠 Document Intelligence & Q&A"):
+                with gr.Tabs():
+                    with gr.Tab("🔍 Semantic Search & RAG Q&A"):
+                        with gr.Row():
+                            with gr.Column():
+                                gr.Markdown("#### 🔍 Vector Semantic Search")
+                                search_query_input = gr.Textbox(label="Search Query", placeholder="Search document embeddings...", lines=2)
+                                search_top_k_slider = gr.Slider(label="Max Results", minimum=1, maximum=10, value=5, step=1)
+                                search_btn_action = gr.Button("🔍 Search Knowledge Base", variant="primary")
+                                search_output_display = gr.Textbox(label="Search Results", lines=12, placeholder="Search results will appear here...")
+                            with gr.Column():
+                                gr.Markdown("#### ❓ Generative Q&A with Gemini")
+                                qa_question_input = gr.Textbox(label="Ask Questions About Your Knowledge Base", placeholder="Ask anything about indexed documents...", lines=2)
+                                qa_btn_action = gr.Button("💡 Get Answer with Citations", variant="primary")
+                                qa_output_display = gr.Textbox(label="AI Answer & Sources", lines=12, placeholder="Answer will appear here with citations...")
+
+                    with gr.Tab("📚 Document Library & Ingestion"):
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                gr.Markdown("#### 📤 Ingest & Index New Document")
+                                file_input_upload = gr.File(label="Select Document", file_types=[".txt", ".pdf", ".docx", ".csv", ".json", ".md"])
+                                upload_btn_process = gr.Button("📤 Process and Index", variant="primary")
+                                upload_output_display = gr.Textbox(label="Ingestion Result", lines=4)
+                                doc_id_output_display = gr.Textbox(label="Generated Document ID", interactive=False)
+                            with gr.Column(scale=2):
+                                gr.Markdown("#### 📂 Indexed Documents in Repository")
+                                document_list_display = gr.Textbox(label="Documents in Vector Store", value=get_document_list(), lines=12, interactive=False)
+                                with gr.Row():
+                                    refresh_btn_library = gr.Button("🔄 Refresh Library", variant="secondary")
+                                    delete_doc_dropdown_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Delete", value=None)
+                                    delete_btn = gr.Button("🗑️ Delete", variant="stop")
+                                delete_output_display = gr.Textbox(label="Status", lines=2, interactive=False)
+
+                    with gr.Tab("📝 Summarize & Auto-Tag"):
+                        with gr.Row():
+                            with gr.Column():
+                                gr.Markdown("#### 📝 Document Summarization")
+                                doc_dropdown_sum_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Summarize", value=None)
+                                summary_text_input = gr.Textbox(label="Or Paste Raw Text", placeholder="Paste any text to summarize...", lines=4)
+                                summary_style_dropdown = gr.Dropdown(choices=["concise", "detailed", "bullet_points", "executive"], value="concise", label="Summary Style")
+                                summarize_btn_action = gr.Button("📝 Summarize", variant="primary")
+                                summary_output_display = gr.Textbox(label="Summary", lines=10)
+                            with gr.Column():
+                                gr.Markdown("#### 🏷️ Automated Tag Generator")
+                                doc_dropdown_tag_visible = gr.Dropdown(choices=get_document_choices(), label="Select Document to Tag", value=None)
+                                tag_text_input = gr.Textbox(label="Or Paste Raw Text", placeholder="Paste text to extract tags...", lines=4)
+                                max_tags_slider = gr.Slider(label="Number of Tags", minimum=3, maximum=15, value=5, step=1)
+                                tag_btn_action = gr.Button("🏷️ Generate Tags", variant="primary")
+                                tag_output_display = gr.Textbox(label="Extracted Tags", lines=6)
+
+            # Tab 5: Template Registry
+            with gr.Tab("⚡ Template Registry"):
+                gr.Markdown("""### ⚡ Bank & Financial Statement Parsers
+High-speed deterministic pattern engines execute directly in-memory without GPU or LLM inference.
+Unrecognized documents automatically activate the Gemini Vision fallback and self-learning synthesizer.
+                """)
+                templates_table = gr.Dataframe(
+                    headers=["Template ID", "Name", "Category", "Type", "Version", "Engine"],
+                    datatype=["str", "str", "str", "str", "str", "str"],
+                    value=get_templates_rows(),
+                    interactive=False,
+                    wrap=True
+                )
+
+        # Wire all reactive events
         all_dropdowns_to_update = [delete_doc_dropdown_visible, doc_dropdown_sum_visible, doc_dropdown_tag_visible]
-        
         refresh_outputs = [document_list_display] + [dd for dd in all_dropdowns_to_update]
         refresh_btn_library.click(fn=refresh_library, outputs=refresh_outputs)
         
@@ -735,7 +935,13 @@ def create_gradio_interface():
         summarize_btn_action.click(summarize_document, inputs=[doc_dropdown_sum_visible, summary_text_input, summary_style_dropdown], outputs=[summary_output_display])
         tag_btn_action.click(generate_tags_for_document, inputs=[doc_dropdown_tag_visible, tag_text_input, max_tags_slider], outputs=[tag_output_display])
         qa_btn_action.click(ask_question, inputs=[qa_question_input], outputs=[qa_output_display])
-        extract_btn_action.click(extract_structured_data, inputs=[extract_file_input, extract_doctype_dropdown, extract_hints_input], outputs=[extract_json_display])
+
+        # Financial Studio event
+        extract_btn_action.click(
+            extract_structured_data_ui,
+            inputs=[extract_file_input, extract_doctype_dropdown, extract_hints_input],
+            outputs=[extract_status_md, extract_tx_table, extract_json_display]
+        )
 
         # Task monitor events
         task_refresh_btn.click(
@@ -765,6 +971,7 @@ def create_gradio_interface():
 if __name__ == "__main__":
     import uvicorn
     from fastapi import FastAPI
+    from api.auth_api import router as auth_router
     from api.extraction_api import router as extraction_router
 
     gradio_interface = create_gradio_interface()
@@ -773,12 +980,13 @@ if __name__ == "__main__":
 
     fastapi_app = FastAPI(
         title="Intelligent Content Organizer & Extraction Engine",
-        description="Unified REST API and Gradio MCP platform for document organization and structured extraction.",
-        version="2.0.0"
+        description="Unified Enterprise RAG knowledge organizer and deterministic financial extraction studio with Keycloak SSO.",
+        version="2.2.0"
     )
+    fastapi_app.include_router(auth_router)
     fastapi_app.include_router(extraction_router)
 
     app = gr.mount_gradio_app(fastapi_app, gradio_interface, path="/", mcp_server=True)
 
-    logger.info(f"Starting Unified incorg server on {server_name}:{server_port}...")
+    logger.info(f"Starting Unified incorg server v2.2.0 on {server_name}:{server_port}...")
     uvicorn.run(app, host=server_name, port=server_port)
