@@ -16,7 +16,7 @@ class KeycloakAuthService:
         self.keycloak_internal_url = os.getenv("KEYCLOAK_INTERNAL_URL", "http://keycloak.keycloak.svc.cluster.local:80/keycloak").rstrip("/")
         self.realm = os.getenv("KEYCLOAK_REALM", "cnoe")
         self.client_id = os.getenv("KEYCLOAK_CLIENT_ID", "vgurukool-apps")
-        self.redirect_uri = os.getenv("KEYCLOAK_REDIRECT_URI", "https://incorg.vgurukool.com/callback")
+        self.redirect_uri = os.getenv("KEYCLOAK_REDIRECT_URI", "https://incorg.vgurukool.com/auth/callback")
         self.session_secret = os.getenv("SESSION_SECRET", "vgurukool-incorg-session-token-secret-2026")
         self.cookie_name = "incorg_session"
 

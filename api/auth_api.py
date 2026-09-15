@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Authentication"])
 
+@router.get("/auth/login")
 @router.get("/login")
 def login(request: Request, response: Response):
     """Initiates Keycloak OIDC authorization code flow with PKCE."""
@@ -37,6 +38,7 @@ def login(request: Request, response: Response):
         logger.error(f"Failed to generate login URL: {e}")
         raise HTTPException(status_code=500, detail="SSO authorization initiation failed")
 
+@router.get("/auth/callback")
 @router.get("/callback")
 async def auth_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     """Handles Keycloak redirect callback and token exchange."""
@@ -88,6 +90,7 @@ async def auth_callback(request: Request, code: Optional[str] = None, state: Opt
         logger.error(f"Exception during Keycloak callback handling: {e}")
         return RedirectResponse(url="/?auth_error=callback_exception")
 
+@router.get("/auth/logout")
 @router.get("/logout")
 def logout(request: Request, response: Response):
     """Logs user out of incorg and redirects to Keycloak end session endpoint."""

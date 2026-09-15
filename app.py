@@ -656,35 +656,35 @@ HEADER_HTML = """
       <span>⚡ Fast-Path: 20-50ms</span>
     </div>
     <div id="auth-status-container">
-      <a id="sso-auth-btn" href="/login" style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: white; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);">
+      <a id="sso-auth-btn" href="/auth/login" style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: white; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);">
         <span>🔐</span>
         <span>Sign In with Keycloak SSO</span>
       </a>
     </div>
   </div>
 </div>
-<script>
-(function() {
+"""
+
+AUTH_CHECK_JS = """
+function() {
   fetch('/api/v1/auth/me')
     .then(r => r.json())
     .then(data => {
       const container = document.getElementById('auth-status-container');
       if (container && data.authenticated) {
-        const u = data.user;
-        const name = u.name || u.preferred_username || u.email;
+        const name = data.name || data.username || 'User';
         container.innerHTML = `
           <div style="display: flex; align-items: center; gap: 8px; background: #1e293b; border: 1px solid #334155; padding: 6px 14px; border-radius: 8px; font-size: 13px; color: #f1f5f9;">
             <span>👤</span>
             <span style="font-weight: 600;">${name}</span>
             <span style="color: #64748b; font-size: 11px;">(cnoe)</span>
-            <a href="/logout" style="margin-left: 6px; color: #f87171; text-decoration: none; font-size: 12px; font-weight: 500;">Logout</a>
+            <a href="/auth/logout" style="margin-left: 6px; color: #f87171; text-decoration: none; font-size: 12px; font-weight: 500;">Logout</a>
           </div>
         `;
       }
     })
     .catch(() => {});
-})();
-</script>
+}
 """
 
 OVERVIEW_HTML = """
@@ -965,7 +965,7 @@ Unrecognized documents automatically activate the Gemini Vision fallback and sel
             outputs=[task_detail_output]
         )
 
-        interface.load(fn=refresh_library, outputs=refresh_outputs)
+        interface.load(fn=refresh_library, outputs=refresh_outputs, js=AUTH_CHECK_JS)
         return interface           
 
 if __name__ == "__main__":
