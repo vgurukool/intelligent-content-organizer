@@ -21,8 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch CPU first to keep image compact
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Upgrade pip and install PyTorch CPU first to keep image compact
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Copy requirements and install
 COPY requirements.txt .
