@@ -6,14 +6,21 @@ load_dotenv()
 
 
 class Config:
-    # API Keys
-    NEBIUS_API_KEY: Optional[str] = os.getenv("NEBIUS_API_KEY")
+    # API Keys & LLM Configuration (LiteLLM / OpenAI / Nebius / Mistral)
+    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", os.getenv("NEBIUS_API_KEY"))
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", os.getenv("NEBIUS_BASE_URL", "https://api.studio.nebius.com/v1/"))
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", os.getenv("NEBIUS_MODEL", "gemini-2.5-flash"))
+    
+    NEBIUS_API_KEY: Optional[str] = OPENAI_API_KEY
+    NEBIUS_BASE_URL: str = OPENAI_BASE_URL
+    NEBIUS_MODEL: str = OPENAI_MODEL
+
     MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
     HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY", os.getenv("HF_TOKEN"))
     
-    # NEBIUS Configuration (OpenAI OSS models)
-    NEBIUS_BASE_URL: str = os.getenv("NEBIUS_BASE_URL", "https://api.studio.nebius.com/v1/")
-    NEBIUS_MODEL: str = os.getenv("NEBIUS_MODEL", "openai/gpt-oss-120b")
+    # Server Configuration
+    SERVER_NAME: str = os.getenv("SERVER_NAME", "0.0.0.0")
+    SERVER_PORT: int = int(os.getenv("SERVER_PORT", os.getenv("PORT", "7860")))
     
     # Model Configuration
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")

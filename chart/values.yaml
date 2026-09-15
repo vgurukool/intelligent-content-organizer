@@ -1,0 +1,92 @@
+replicaCount: 1
+
+image:
+  repository: ayusing/intelligent-content-organizer
+  pullPolicy: Always
+  tag: "v1.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 7860
+  targetPort: 7860
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "intelligent-content-organizer"
+  hosts:
+    - host: ico.vgurukool.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ico-tls
+      hosts:
+        - ico.vgurukool.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 250m
+    memory: 1Gi
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 45
+  periodSeconds: 20
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+env:
+  SERVER_NAME: "0.0.0.0"
+  SERVER_PORT: "7860"
+  PORT: "7860"
+  OPENAI_API_KEY: "sk-litellm-vgurukool-master-2026"
+  OPENAI_BASE_URL: "http://litellm.litellm.svc.cluster.local:4000/v1"
+  OPENAI_MODEL: "gemini-2.5-flash"
+  VECTOR_STORE_PATH: "/app/data/vector_store"
+  DOCUMENT_STORE_PATH: "/app/data/documents"
+  EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+  CHUNK_SIZE: "500"
+  CHUNK_OVERLAP: "50"
+  DEFAULT_TOP_K: "5"
+  SIMILARITY_THRESHOLD: "0.1"
+  OCR_LANGUAGE: "eng"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

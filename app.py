@@ -535,4 +535,11 @@ def create_gradio_interface():
 
 if __name__ == "__main__":
     gradio_interface = create_gradio_interface()
-    gradio_interface.launch(mcp_server=True)
+    server_name = getattr(config.config, "SERVER_NAME", "0.0.0.0")
+    server_port = getattr(config.config, "SERVER_PORT", 7860)
+    logger.info(f"Starting Gradio MCP server on {server_name}:{server_port}...")
+    gradio_interface.launch(
+        server_name=server_name,
+        server_port=server_port,
+        mcp_server=True
+    )

@@ -62,19 +62,19 @@ class LLMService:
                     logger.error("No LLM clients available for 'auto' mode or default models not configured.")
                     raise ValueError("No LLM clients available for 'auto' mode or default models not configured.")
             
-            elif model.startswith("gpt-") or model.startswith("openai/") or model.lower().startswith("nebius/"):
-                if not self.nebius_client:
-                    raise ValueError("NEBIUS client not available. Check API key or model prefix.")
-                actual_model = model.split('/')[-1] if '/' in model else model
-                return await self._generate_with_nebius(prompt, actual_model, max_tokens, temperature)
-            
             elif model.startswith("mistral"):
                 if not self.mistral_client:
                     raise ValueError("Mistral client not available. Check API key or model prefix.")
                 return await self._generate_with_mistral(prompt, model, max_tokens, temperature)
             
             else:
-                raise ValueError(f"Unsupported model: {model}. Must start with 'gpt-', 'openai/', 'nebius/', 'mistral', or be 'auto'.")
+                if self.nebius_client:
+                    actual_model = model.split('/')[-1] if '/' in model else model
+                    return await self._generate_with_nebius(prompt, actual_model, max_tokens, temperature)
+                elif self.mistral_client:
+                    return await self._generate_with_mistral(prompt, model, max_tokens, temperature)
+                else:
+                    raise ValueError(f"No LLM client available to handle model: {model}")
         
         except Exception as e:
             logger.error(f"Error generating text with model '{model}': {str(e)}")

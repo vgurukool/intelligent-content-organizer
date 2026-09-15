@@ -1,0 +1,6 @@
+apiVersion: v2
+name: intelligent-content-organizer
+description: Intelligent Content Organizer MCP Agent and Gradio Web Interface
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
