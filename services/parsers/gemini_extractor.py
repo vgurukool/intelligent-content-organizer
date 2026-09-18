@@ -19,8 +19,9 @@ class GeminiExtractor(BaseParser):
 
     def __init__(self):
         self.config = config.config
-        self.api_key = getattr(self.config, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY") or "sk-litellm-vgurukool-master-2026"
+        self.api_key = getattr(self.config, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY") or ""
         self.base_url = getattr(self.config, "OPENAI_BASE_URL", "http://litellm.litellm.svc.cluster.local:4000/v1")
+
         self.model_name = getattr(self.config, "OPENAI_MODEL", "gemini-2.5-flash")
         
         self.client = None

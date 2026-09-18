@@ -81,8 +81,9 @@ env:
   SERVER_NAME: "0.0.0.0"
   SERVER_PORT: "7860"
   PORT: "7860"
-  OPENAI_API_KEY: "sk-litellm-vgurukool-master-2026"
+  OPENAI_API_KEY: ""
   OPENAI_BASE_URL: "http://litellm.litellm.svc.cluster.local:4000/v1"
+
   OPENAI_MODEL: "gemini-2.5-flash"
   VECTOR_STORE_PATH: "/app/data/vector_store"
   DOCUMENT_STORE_PATH: "/app/data/documents"
